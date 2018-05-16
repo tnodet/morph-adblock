@@ -79,7 +79,7 @@ def main(*args):
 
 	# YouTube API
 
-
+	# This request works only if the channel name we use is actually the YouTube username
 	headers = {'user-agent': requests.utils.default_user_agent()+'(gzip)'}
 	url = 'https://www.googleapis.com/youtube/v3/'
 	resource = 'channels'
@@ -88,6 +88,7 @@ def main(*args):
 		key = key_file.read()
 
 	found_channels = list()
+	unfound_channels = list()
 	whitelisted = list()
 	blacklisted = list()
 
@@ -110,6 +111,7 @@ def main(*args):
 				msg = "Several channels found forUsername='{}'! Selected first id={}".format(channel_name,channel_id)
 				#print(msg)
 		elif nb_results == 0:
+			unfound_channels.append(channel_name)
 			msg = "No channel found forUsername='{}'...".format(channel_name)
 			#print(msg)
 
@@ -117,16 +119,29 @@ def main(*args):
 	# Export to "YouTube Whitelister for uBlock Origin" format
 
 	ublock_youtube_lists = {'whitelisted': whitelisted, 'blacklisted': blacklisted}
-	pp.pprint(ublock_youtube_lists)
+	#pp.pprint(ublock_youtube_lists)
 
 	ublock_youtube_str = json.dumps(ublock_youtube_lists)
-	print(ublock_youtube_str)
+	#print(ublock_youtube_str)
 
-	print(output_file_path)
+	#print(output_file_path)
 
 	with open(output_file_path, 'w') as output_file:
 		print(output_file)
 		output_file.write(ublock_youtube_str)	# write resulting JSON str to output file
+
+	(input_file_path_root, input_file_path_ext) = os.path.splitext(input_file_path)
+
+	found_channels_file_path = os.path.abspath(str(input_file_path_root)+".found"+str(input_file_path_ext))
+	unfound_channels_file_path = os.path.abspath(str(input_file_path_root)+".unfound"+str(input_file_path_ext))
+
+	with open(found_channels_file_path, 'w') as found_channels_file:
+		for found_channel in found_channels:
+			found_channels_file.write(found_channel+'\n')
+
+	with open(unfound_channels_file_path, 'w') as unfound_channels_file:
+		for unfound_channel in unfound_channels:
+			unfound_channels_file.write(unfound_channel+'\n')
 
 	return
 
