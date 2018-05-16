@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
-import sys
+import os,sys
 
+
+def printerr(*args, **kwargs):
+	print(*args, file=sys.stderr, **kwargs)
 
 def remove_prefix_and_suffix(s, prefix, suffix):
 	"""Try and remove the prefix and suffix from the given string.
@@ -37,9 +40,11 @@ def remove_prefix_and_suffix(s, prefix, suffix):
 		raise ValueError("Prefix doesn't match the given string:\n\tprefix: {}\n\tstring: {}".format(prefix, s))
 
 
-def main():
+def main(*args):
 
-	file = open('adblock-youtube.txt', 'r')
+	file_path=os.path.abspath(args[0])	# get absolute path of the file
+
+	file = open(file_path, 'r')
 
 	channel_names = list()
 
@@ -54,9 +59,9 @@ def main():
 			channel_name = remove_prefix_and_suffix(line, prefix, suffix)
 			channel_names.append(channel_name)
 		except ValueError as ve:
-			# print(ve, file=sys.stderr)
+			# printerr(ve)
 			# msg = "Line {} doesn't have the expected format:\n\tWas expecting {}<channel_name>{}\n\tGot: {}".format(i, prefix, suffix, line)
-			# print(msg, file=sys.stderr)
+			# printerr(msg)
 			pass
 
 	# alphabetically sort the list
@@ -67,5 +72,18 @@ def main():
 		print(channel_name)
 
 
+	file.close()
+
+	return
+
 if __name__ == '__main__':
-	main()
+	usage = "Usage: {} /path/to/adblock-filter-rules".format(sys.argv[0])
+
+	try:
+		input_file = sys.argv[1]
+	except IndexError as ie:
+		#printerr(ie)
+		print(usage)
+		sys.exit(-1)
+
+	sys.exit(main(input_file))
