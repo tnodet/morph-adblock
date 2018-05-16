@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
 import os,sys
+import requests
 
 
 def printerr(*args, **kwargs):
+	"""Wrapper around print, to print to stderr"""
 	print(*args, file=sys.stderr, **kwargs)
+
 
 def remove_prefix_and_suffix(s, prefix, suffix):
 	"""Try and remove the prefix and suffix from the given string.
@@ -64,17 +67,51 @@ def main(*args):
 			# printerr(msg)
 			pass
 
+	file.close()
+
 	# alphabetically sort the list
 	#channel_names.sort()	# case sensitive: Uppercase comes before lowercase
 	channel_names = sorted(channel_names, key=lambda s: s.lower())	# case insensitive (https://stackoverflow.com/questions/10269701/case-insensitive-list-sorting-without-lowercasing-the-result)
 
+
+	# YouTube API
+
+
+	headers = {'user-agent': requests.utils.default_user_agent()+'(gzip)'}
+	url = 'https://www.googleapis.com/youtube/v3/'
+	resource = 'channels'
+
+	with open('youtube-api-v3-credential.key', 'r') as key_file:
+		key = key_file.read()
+
 	for channel_name in channel_names:
-		print(channel_name)
+		payload = {'part': 'id', 'forUsername': channel_name, 'key': key}
 
+		r = requests.get(url+resource, params=payload, headers=headers)
 
-	file.close()
+		#print(r.url)
+		#print(r.request.headers)
+		#print(r.headers)
+		#print(r.text)
+
+		r_json = r.json()
+		nb_results = r_json['pageInfo']['totalResults']
+
+		if nb_results >= 1:
+			channel_id = r_json['items'][0]['id']
+			if nb_results == 1:
+				msg = "Channel found forUsername='{}': id={}".format(channel_name,channel_id)
+				print(msg)
+			else:
+				msg = "Several channels found forUsername='{}'! Selected first id={}".format(channel_name,channel_id)
+				print(msg)
+		elif nb_results == 0:
+			msg = "No channel found forUsername='{}'...".format(channel_name)
+			print(msg)
+
 
 	return
+
 
 if __name__ == '__main__':
 	usage = "Usage: {} /path/to/adblock-filter-rules".format(sys.argv[0])
