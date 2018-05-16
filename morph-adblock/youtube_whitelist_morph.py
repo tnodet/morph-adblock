@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os,sys
+import json, os, pprint, sys
 import requests
 
 
@@ -45,13 +45,16 @@ def remove_prefix_and_suffix(s, prefix, suffix):
 
 def main(*args):
 
-	file_path=os.path.abspath(args[0])	# get absolute path of the file
+	pp = pprint.PrettyPrinter(indent=4)
 
-	file = open(file_path, 'r')
+	input_file_path=os.path.abspath(args[0])	# get absolute path of the file
+	input_file = open(input_file_path, 'r')
+
+	output_file_path=os.path.abspath(args[1])
 
 	channel_names = list()
 
-	for i,line in enumerate(file):
+	for i,line in enumerate(input_file):
 		# each line has the form: @@|https://www.youtube.com/*ChannelName|$document
 		# we want to isolate the channel name
 		prefix = '@@|https://www.youtube.com/*'
@@ -67,7 +70,7 @@ def main(*args):
 			# printerr(msg)
 			pass
 
-	file.close()
+	input_file.close()
 
 	# alphabetically sort the list
 	#channel_names.sort()	# case sensitive: Uppercase comes before lowercase
@@ -84,43 +87,59 @@ def main(*args):
 	with open('youtube-api-v3-credential.key', 'r') as key_file:
 		key = key_file.read()
 
+	found_channels = list()
+	whitelisted = list()
+	blacklisted = list()
+
 	for channel_name in channel_names:
 		payload = {'part': 'id', 'forUsername': channel_name, 'key': key}
 
 		r = requests.get(url+resource, params=payload, headers=headers)
-
-		#print(r.url)
-		#print(r.request.headers)
-		#print(r.headers)
-		#print(r.text)
 
 		r_json = r.json()
 		nb_results = r_json['pageInfo']['totalResults']
 
 		if nb_results >= 1:
 			channel_id = r_json['items'][0]['id']
+			found_channels.append(channel_name)
+			whitelisted.append({'id': channel_id, 'username': '', 'display': channel_name})
 			if nb_results == 1:
 				msg = "Channel found forUsername='{}': id={}".format(channel_name,channel_id)
-				print(msg)
+				#print(msg)
 			else:
 				msg = "Several channels found forUsername='{}'! Selected first id={}".format(channel_name,channel_id)
-				print(msg)
+				#print(msg)
 		elif nb_results == 0:
 			msg = "No channel found forUsername='{}'...".format(channel_name)
-			print(msg)
+			#print(msg)
 
+
+	# Export to "YouTube Whitelister for uBlock Origin" format
+
+	ublock_youtube_lists = {'whitelisted': whitelisted, 'blacklisted': blacklisted}
+	pp.pprint(ublock_youtube_lists)
+
+	ublock_youtube_str = json.dumps(ublock_youtube_lists)
+	print(ublock_youtube_str)
+
+	print(output_file_path)
+
+	with open(output_file_path, 'w') as output_file:
+		print(output_file)
+		output_file.write(ublock_youtube_str)	# write resulting JSON str to output file
 
 	return
 
 
 if __name__ == '__main__':
-	usage = "Usage: {} /path/to/adblock-filter-rules".format(sys.argv[0])
+	usage = "Usage: {} /path/to/adblock-filter-rules /path/to/ublock-filters.json".format(sys.argv[0])
 
 	try:
 		input_file = sys.argv[1]
+		output_file = sys.argv[2]
 	except IndexError as ie:
 		#printerr(ie)
 		print(usage)
 		sys.exit(-1)
 
-	sys.exit(main(input_file))
+	sys.exit(main(input_file, output_file))
