@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import json, os, pprint, sys
+import copy, json, os, pprint, sys, urllib
 import requests
 
 
@@ -48,55 +48,58 @@ def main(*args):
 	pp = pprint.PrettyPrinter(indent=4)
 
 	input_file_path=os.path.abspath(args[0])	# get absolute path of the file
-	input_file = open(input_file_path, 'r')
-
 	output_file_path=os.path.abspath(args[1])
 
 	channel_names = list()
 
-	for i,line in enumerate(input_file):
-		# each line has the form: @@|https://www.youtube.com/*ChannelName|$document
-		# we want to isolate the channel name
-		prefix = '@@|https://www.youtube.com/*'
-		suffix = '|$document'
-		line = line.rstrip('\n\r')	# we remove trailing CR/LF from the line
+	# each line has the form: @@|https://www.youtube.com/*ChannelName|$document
+	# we want to isolate the channel name
+	prefix = '@@|https://www.youtube.com/*'
+	suffix = '|$document'
 
-		try:
-			channel_name = remove_prefix_and_suffix(line, prefix, suffix)
-			channel_names.append(channel_name)
-		except ValueError as ve:
-			# printerr(ve)
-			# msg = "Line {} doesn't have the expected format:\n\tWas expecting {}<channel_name>{}\n\tGot: {}".format(i, prefix, suffix, line)
-			# printerr(msg)
-			pass
-
-	input_file.close()
+	with open(input_file_path, 'r') as input_file:
+		for i,line in enumerate(input_file):
+			line = line.rstrip('\n')	# we remove potential trailing line-feed from the line
+			try:
+				channel_name = remove_prefix_and_suffix(line, prefix, suffix)	# get channel_name by removing prefix and suffix from line
+			except ValueError as ve:
+				# printerr(ve)
+				# msg = "Line {} doesn't have the expected format:\n\tWas expecting {}<channel_name>{}\n\tGot: {}".format(i, prefix, suffix, line)
+				# printerr(msg)
+				pass
+			else:
+				channel_name = urllib.parse.unquote(channel_name)	# resulting channel_name can be URL-escaped, so we 'unquote' it
+				channel_names.append(channel_name)
 
 	# alphabetically sort the list
-	#channel_names.sort()	# case sensitive: Uppercase comes before lowercase
 	channel_names = sorted(channel_names, key=lambda s: s.lower())	# case insensitive (https://stackoverflow.com/questions/10269701/case-insensitive-list-sorting-without-lowercasing-the-result)
 
 
 	# YouTube API
 
-	# This request works only if the channel name we use is actually the YouTube username
-	headers = {'user-agent': requests.utils.default_user_agent()+'(gzip)'}
-	url = 'https://www.googleapis.com/youtube/v3/'
-	resource = 'channels'
-
-	with open('youtube-api-v3-credential.key', 'r') as key_file:
-		key = key_file.read()
-
+	# declare lists
 	found_channels = list()
 	unfound_channels = list()
 	whitelisted = list()
 	blacklisted = list()
 
+	# set common Requests parameters
+	headers = {'user-agent': requests.utils.default_user_agent()+'(gzip)'}
+	url = 'https://www.googleapis.com/youtube/v3/'
+	with open('youtube-api-v3-credential.key', 'r') as key_file:	# get API credential from file
+		key = key_file.read()
+
+
+	# 1st pass: get channelId by listing channels with channel_name as Username
+	# https://developers.google.com/youtube/v3/docs/channels/list
+	# This request works only if the channel name we use is actually the YouTube username
+	print("\n1st pass\n--------")
+	resource = 'channels'
+
 	for channel_name in channel_names:
+
 		payload = {'part': 'id', 'forUsername': channel_name, 'key': key}
-
 		r = requests.get(url+resource, params=payload, headers=headers)
-
 		r_json = r.json()
 		nb_results = r_json['pageInfo']['totalResults']
 
@@ -106,14 +109,48 @@ def main(*args):
 			whitelisted.append({'id': channel_id, 'username': '', 'display': channel_name})
 			if nb_results == 1:
 				msg = "Channel found forUsername='{}': id={}".format(channel_name,channel_id)
-				#print(msg)
+				print(msg)
 			else:
 				msg = "Several channels found forUsername='{}'! Selected first id={}".format(channel_name,channel_id)
-				#print(msg)
+				print(msg)
 		elif nb_results == 0:
 			unfound_channels.append(channel_name)
 			msg = "No channel found forUsername='{}'...".format(channel_name)
-			#print(msg)
+			print(msg)
+
+	# Create a temporary copy of unfoud_channel, to iterate on the original and pop items from the copy
+	unfound_channels_tmp = copy.copy(unfound_channels)
+
+
+	# 2nd pass: get channelId and channelTitle by searching channels with query channel_name
+	# https://developers.google.com/youtube/v3/docs/channels/list
+	print("\n2nd pass\n--------")
+	resource = 'search'
+
+	for channel_name in unfound_channels:
+
+		payload = {'q': channel_name, 'type': 'channel', 'part': 'snippet', 'maxResults': 1, 'key': key}
+		r = requests.get(url+resource, params=payload, headers=headers)
+		r_json = r.json()
+		nb_results = r_json['pageInfo']['totalResults']
+
+		if nb_results >= 1:
+			# more than one result, we take the first result
+			channel_id = r_json['items'][0]['snippet']['channelId']
+			channel_title = r_json['items'][0]['snippet']['channelTitle']
+			unfound_channels_tmp.remove(channel_name)
+			found_channels.append(channel_name)
+			whitelisted.append({'id': channel_id, 'username': '', 'display': channel_title})
+			msg = "Channel found for query '{}': title='{}': id='{}'".format(channel_name, channel_title, channel_id)
+			print(msg)
+		elif nb_results == 0:
+			# no results
+			msg = "No channel found for query '{}'...".format(channel_name)
+			print(msg)
+
+	unfound_channels = unfound_channels_tmp
+	#pp.pprint(found_channels)
+	#pp.pprint(unfound_channels)
 
 
 	# Export to "YouTube Whitelister for uBlock Origin" format
@@ -124,11 +161,11 @@ def main(*args):
 	ublock_youtube_str = json.dumps(ublock_youtube_lists)
 	#print(ublock_youtube_str)
 
-	#print(output_file_path)
-
 	with open(output_file_path, 'w') as output_file:
-		print(output_file)
 		output_file.write(ublock_youtube_str)	# write resulting JSON str to output file
+
+
+	# Write the found and unfound channels to external files (<input_file_root>.[un]found.<input_file_ext>)
 
 	(input_file_path_root, input_file_path_ext) = os.path.splitext(input_file_path)
 
@@ -142,6 +179,7 @@ def main(*args):
 	with open(unfound_channels_file_path, 'w') as unfound_channels_file:
 		for unfound_channel in unfound_channels:
 			unfound_channels_file.write(unfound_channel+'\n')
+
 
 	return
 
