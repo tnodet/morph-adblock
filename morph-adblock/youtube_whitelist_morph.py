@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-import copy, json, os, pprint, sys, urllib
-import requests
+import copy, json, os, pprint, re, sys, urllib
+import requests, unidecode
 
 
 def printerr(*args, **kwargs):
@@ -115,9 +115,9 @@ def main(*args):
 			msg = "No channel found for Username='{}'...".format(channel_name)
 			print(msg)
 
+
 	# Create a temporary copy of unfoud_channel, to iterate on the original and pop items from the copy
 	unfound_channels_tmp = copy.copy(unfound_channels)
-
 
 	# 2nd pass: get channelId and channelTitle by searching channels with query channel_name
 	# https://developers.google.com/youtube/v3/docs/channels/list
@@ -146,8 +146,61 @@ def main(*args):
 			print(msg)
 
 	unfound_channels = unfound_channels_tmp
-	#pp.pprint(found_channels)
-	#pp.pprint(unfound_channels)
+
+
+	unfound_channels_tmp = copy.copy(unfound_channels)
+	# Try with all-ASCII letters
+	for channel_name in unfound_channels:
+		unfound_channels_tmp.remove(channel_name)
+
+		# We use unidecode to convert Unicode strings to ASCII-representable strings
+		# https://stackoverflow.com/questions/517923/what-is-the-best-way-to-remove-accents-in-a-python-unicode-string
+		channel_name = unidecode.unidecode(channel_name)
+
+		# We replace any non-alaphanumeric by a space
+		# https://stackoverflow.com/questions/1276764/stripping-everything-but-alphanumeric-chars-from-a-string-in-python
+		pattern = re.compile('[\W_]+')
+		channel_name = pattern.sub(' ', channel_name)
+
+		# We remove numeric characters
+		pattern = re.compile('[0-9]+')
+		channel_name = pattern.sub('', channel_name)
+
+		channel_name = channel_name.strip(' ')
+
+		unfound_channels_tmp.append(channel_name)
+	unfound_channels = unfound_channels_tmp
+
+	# Create a temporary copy of unfoud_channel, to iterate on the original and pop items from the copy
+	unfound_channels_tmp = copy.copy(unfound_channels)
+
+	# 3nd pass: get channelId and channelTitle by searching channels with query channel_name
+	# https://developers.google.com/youtube/v3/docs/channels/list
+	print("\n3nd pass\n--------")
+	resource = 'search'
+
+	for channel_name in unfound_channels:
+		# search consumes 100 quota units
+		payload = {'q': channel_name, 'type': 'channel', 'part': 'snippet', 'maxResults': 1, 'key': key}
+		r = requests.get(url+resource, params=payload, headers=headers)
+		r_json = r.json()
+		nb_results = r_json['pageInfo']['totalResults']
+
+		if nb_results >= 1:
+			# more than one result, we take the first result
+			channel_id = r_json['items'][0]['snippet']['channelId']
+			channel_title = r_json['items'][0]['snippet']['channelTitle']
+			unfound_channels_tmp.remove(channel_name)
+			found_channels.append(channel_name)
+			whitelisted.append({'id': channel_id, 'username': '', 'display': channel_title})
+			msg = "Channel found for query '{}': title='{}': id='{}'".format(channel_name, channel_title, channel_id)
+			print(msg)
+		elif nb_results == 0:
+			# no results
+			msg = "No channel found for query '{}'...".format(channel_name)
+			print(msg)
+
+	unfound_channels = unfound_channels_tmp
 
 
 	# alphabetically sort the found and unfound lists
