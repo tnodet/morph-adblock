@@ -97,25 +97,22 @@ def main(*args):
 	resource = 'channels'
 
 	for channel_name in channel_names:
-
-		payload = {'part': 'id', 'forUsername': channel_name, 'key': key}
+		# part=snippet consumes 2 quota units
+		payload = {'part': 'snippet', 'forUsername': channel_name, 'maxResults': 1, 'key': key}
 		r = requests.get(url+resource, params=payload, headers=headers)
 		r_json = r.json()
 		nb_results = r_json['pageInfo']['totalResults']
 
 		if nb_results >= 1:
 			channel_id = r_json['items'][0]['id']
+			channel_title = r_json['items'][0]['snippet']['title']
 			found_channels.append(channel_name)
-			whitelisted.append({'id': channel_id, 'username': '', 'display': channel_name})
-			if nb_results == 1:
-				msg = "Channel found forUsername='{}': id={}".format(channel_name,channel_id)
-				print(msg)
-			else:
-				msg = "Several channels found forUsername='{}'! Selected first id={}".format(channel_name,channel_id)
-				print(msg)
+			whitelisted.append({'id': channel_id, 'username': '', 'display': channel_title})
+			msg = "Channel found for Username='{}': title='{}': id='{}'".format(channel_name, channel_title, channel_id)
+			print(msg)
 		elif nb_results == 0:
 			unfound_channels.append(channel_name)
-			msg = "No channel found forUsername='{}'...".format(channel_name)
+			msg = "No channel found for Username='{}'...".format(channel_name)
 			print(msg)
 
 	# Create a temporary copy of unfoud_channel, to iterate on the original and pop items from the copy
@@ -128,7 +125,7 @@ def main(*args):
 	resource = 'search'
 
 	for channel_name in unfound_channels:
-
+		# search consumes 100 quota units
 		payload = {'q': channel_name, 'type': 'channel', 'part': 'snippet', 'maxResults': 1, 'key': key}
 		r = requests.get(url+resource, params=payload, headers=headers)
 		r_json = r.json()
@@ -151,6 +148,14 @@ def main(*args):
 	unfound_channels = unfound_channels_tmp
 	#pp.pprint(found_channels)
 	#pp.pprint(unfound_channels)
+
+
+	# alphabetically sort the found and unfound lists
+	found_channels = sorted(found_channels, key=lambda s: s.lower())
+	unfound_channels = sorted(unfound_channels, key=lambda s: s.lower())
+
+	# alphabetically sort the list of whitelisted channels
+	whitelisted = sorted(whitelisted, key=lambda x: x['display'].lower())	# we sort the list on the 'display' value, case insensitive
 
 
 	# Export to "YouTube Whitelister for uBlock Origin" format
